@@ -1,0 +1,857 @@
+---
+title: "Homicides in NYC: When are they domestic?"
+subtitle: "An analysis of various factors associated with domestic homicide"
+author: "R-Rated - Holly Ansel, Jiayi Liang, Matt Jogodnik, Kehan Zhang"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = NA, 
+                      message = FALSE, warning = FALSE,
+                      fig.height = 4, fig.width = 7, fig.align = "center")
+```
+
+```{r packages}
+library(janitor)
+library(tidyverse)
+library(lubridate)
+library(broom)
+library(class)
+library(infer)
+```
+
+```{r import}
+homicide <- read_csv("data/homicide.csv")
+```
+
+```{r fix-vars-names}
+homicide <- homicide %>%
+  rename(
+    perp_status = `PERP STATUS DESCRIPTION`,
+    relationship = `VICTIM PERP RELATIONSHIP`,
+    weapon = `WEAPON USE`,
+    case_n = `CASE NUMBER`,
+    record_n = `RECORD NUMBER`,
+    victim_n = `VICTIM NUMBER`,
+    domestic = `DOMESTIC INCIDENT`
+  ) %>%
+  clean_names() %>%
+  mutate(
+    date = mdy(date),
+    month = month(date, label = TRUE),
+    day = day(date),
+    wday = wday(date, label = TRUE)
+  )
+```
+
+```{r grouping-together-vars}
+homicide <- homicide %>%
+  mutate(precinct = as.integer(precinct),
+         weapon = if_else(weapon == "UNKNOWN", "OTHER", weapon),
+         weapon = if_else(weapon == "HANDS,FISTS,ECT.", 
+                          "HANDS, FISTS, FEET, ETC.", weapon),
+         relationship = if_else(relationship == "OTHER-KNOWN TO VICTIM", 
+                                "OTHER KNOWN TO VICTIM", relationship),
+         relationship = if_else(relationship == "CHILD OF INTIMATE PARTNER" |
+                                  relationship == "STEP CHILD", 
+                                "STEP CHILD/CHILD OF INTIMATE PARTNER", 
+                                relationship),
+         relationship = if_else(relationship == "EX-INTIMATE PARTNER" |
+                                  relationship == "EX-SPOUSE", 
+                                "EX-SPOUSE/INTIMATE PARTNER", 
+                                relationship),
+         victim_race = if_else(victim_race == "ASIAN/PAC.ISL",
+                               "ASIAN / PACIFIC ISLANDER",
+                               victim_race)
+  )
+```
+
+```{r only-domestic-data}
+domestic_homicides <- homicide %>%
+  filter(domestic == "YES") 
+```
+
+## Section 1 - Introduction
+
+For our final project, we (Team R-Rated) will be analyzing public data provided
+by the New York Police Department regarding homicides in the years 2016 through
+2019. Our research question is the following: 
+
+**Which factors make a homicide more likely to be domestic/are associated with
+domestic homicides?**
+
+The homicide data we are using comes from New York City’s .gov website:
+https://www1.nyc.gov/site/nypd/stats/reports-analysis/homicide.page, and is
+collected by a department of the NYPD called CompStat. New York City’s police
+department launched CompStat in 1994, successfully lowering crime rates through
+the use of professional management, statistical analysis, and implementation.
+All CompStat data is recorded by the NYPD in the Uniform Crime Reporting format.
+The data is collected by CompStat because every time a homicide is committed 
+and reported it goes into their records. Each entry in the data set represents 
+one recorded homicide incident in New York City. The variables include the date,
+the precinct, the victim and perpetrator’s age, race, and sex, along with weapon
+used, arrest status, and other various notes. These variables serve to give 
+important information on each of the homicides.
+
+
+## Section 2 - Data analysis plan
+
+Since our research focuses on attributes of the victim and how they are/are not
+associated with domestic homicides, our main outcome variable will be domestic,
+a logical (Yes/No) variable associated with whether a homicide was committed by
+a family member of the victim or otherwise qualifies as being domestic. 
+Predictor variables will include details surrounding the homicide such as 
+what precinct or borough it was committed in, the time of year, and 
+victim/perp age, sex, and race. While analyzing the data, we compare the
+domestic homicide with the non-domestic ones to see the role each predictable
+variable plays.
+
+
+### Statistical Methods
+
+To conduct our analysis we plan on using the following statistical methods:
+
+* Data Visualization
+
+> Data visualization can help us break down and compare domestic homicides among
+different factors like race, sex, and age. Additionally, we can use map
+visualizations to show the proportion of homicides that are domestic in each
+borough to see if location has an effect on a homicide being domestic,
+directly answering our research question.
+
+* Statistical Hypothesis Testing
+
+> Through the use of statistical hypothesis testing, we can see if the
+proportion of homicides that are domestic in NYC is significantly different
+from other populations, such as NY state or the entire United States. In order
+to perform these tests, we would need domestic proportions for these areas,
+however, this data should not be difficult to obtain. Furthermore, since our
+data comes from multiple years, we could compare and see if one year has a
+statistically significantly higher proportion of domestic homicides than another
+and use this in our narrative on domestic homicides in NYC.
+
+* Classification
+
+> Similar to linear regression, we intend to use logistic regression as a
+method of classification. These tools will be of use in answering our research
+question based on a hypothetical homicide victim we could predict the likelihood
+that they were a domestic homicide victim.
+
+### Visualizations
+
+Below are sample visualizations that highlight simple qualities of the data that
+influence our analysis for answering the research question.
+
+The majority of our summary statistics will be introduced in section 4 to 
+connect the visualizations with our deeper analyses.
+
+1. Domestic Homicides by Race Visualization
+
+When looking at the proportion of domestic homicides by race it is evident
+that the proportion is highest among Asian/Pacific Islanders. This demonstrates
+how race can potentially contribute as a factor of what makes someone more
+likely to be a domestic homicide victim. This may be due to cultural factors
+that potentially influence familial relations or is coincidental and due to 
+other circumstances.
+
+```{r domestic-by-race}
+homicide %>%
+  filter(domestic != "NA" & victim_race != "NA") %>%
+  ggplot(mapping = aes(x = victim_race, fill = domestic)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("#B7D8FF", "#1A5CB5")) +
+  coord_flip() +
+  labs(
+    title = "Proportion Homicides by Victim Race",
+    subtitle = "Domestic vs Non-Domestic",
+    x = "Victim Race",
+    y = "Proportion of Homicides",
+    fill = "Is Domestic Homicide"
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+    
+```
+
+
+2. Domestic Homicide Probability By Borough Visualization
+
+This visualization demonstrates the dispersion of domestic homicides across
+the boroughs of New York City each year from 2016 to 2019. Upon inspection,
+it is evident that Staten Island has the most domestic homicides out of the 
+five boroughs. Additionally, it appears that Brooklyn has the least
+domestic homicides. It is plausible that this relationship could be related
+factors such as the average household income or environmental factors
+such as gang presence.
+
+```{r domestic-homicide-probability-between-boroughs, fig.height = 3}
+graph_title2 <- "High Variability in Domestic Homicide Probability
+Between Boroughs"
+
+homicide %>%
+  mutate(borough = factor(borough)) %>%
+  group_by(borough, year) %>%
+  count(domestic) %>%
+  mutate(prop_domestic_per_borough_year = n / sum(n)) %>%
+  filter(domestic == "YES") %>%
+  ggplot(mapping = aes(x = year, y = borough,
+                       fill = prop_domestic_per_borough_year)) +
+  geom_tile(color = "grey") +
+  scale_fill_gradient(
+    low = "#EDF8FF",
+    high = "#1A5CB5",
+    breaks = c(0, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45)
+  ) +
+  theme_minimal(base_size = 8) %+replace%
+  theme(legend.direction = "vertical",
+        legend.key.size = unit(1, "cm")) +
+  labs(
+    title = str_replace_all(graph_title2, "[\r\n]" , ""),
+    fill = "Probability of Domestic Homicide",
+    x = "Year",
+    y = "Borough"
+  )
+```
+
+     
+3. Proportion of Weapons Used in Domestic Homicides Compared To Regular 
+Homicides Visualization and Domestic Homicide Weapons Used Summary Statistic
+
+When examining the weapons used in domestic homicides, this visualization
+indicates that the weapons used for domestic and non-domestic homicides
+vary. Compared to regular homicides, domestic homicides use asphyxiation and
+strangulation proportionally more, as opposed to regular homicides which use
+handguns or explosives more.      
+The summary statistic shows that the incidents of
+neglect and narcotics, although they exclusively occurred in domestic homicides,
+were infrequent. When looking more at the summary statistic of the number of
+domestic homicides for each weapon type, it is evident that the most frequent
+weapons in domestic homicides is cutting/stabbing, handguns, and hands, fists,
+feet, etc. So although the proportions are lower compared to regular homicides,
+these are the most common weapon types for domestic homicides.
+
+```{r weapon-use}
+homicide %>%
+  filter(domestic != "NA" & weapon != "NA") %>%
+  ggplot(mapping = aes(x = weapon, fill = domestic)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("#B7D8FF", "#1A5CB5")) +
+  coord_flip() +
+  labs(
+    title = "Proportion of Weapons Used in Homicides",
+    subtitle = "Domestic vs Non-Domestic",
+    x = "Weapon",
+    y = "Proportion of Homicides"
+  ) +
+  theme_minimal(base_size = 10)
+
+domestic_homicides %>%
+  group_by(weapon) %>%
+  count() %>%
+  select(weapon, n)
+```
+
+4. Distribution of the Age of Domestic Homicide Victims
+
+The distribution of the age of domestic homicide victims illustrates that many 
+victims are young children, especially infants. Among the adult population,
+the victim age is relatively evenly spread.
+
+```{r victim-age}
+ggplot(data = domestic_homicides, mapping = aes(x = victim_age)) +
+  geom_histogram(binwidth = 3,
+                 color = "#6DB1FF",
+                 alpha = 0.75) +
+  labs(title = "Distribution of Age of Domestic Homicide Victims",
+       x = "Victim Age", y = "Number of Domestic Homicides") +
+  theme_minimal(base_size = 10)
+```
+
+
+5. Domestic Homicides by Sex Visualization
+
+In looking at the proportion of homicides by sex and distinguishing between
+domestic and non-domestic homicides it is evident that the proportion
+of females who are victims of domestic homicides is much higher than that of
+males.
+
+```{r domestic-by-sex}
+homicide %>%
+  filter(domestic != "NA" &
+           victim_sex != "NA" & victim_sex != "U") %>%
+  ggplot(mapping = aes(x = victim_sex, fill = domestic)) +
+  geom_bar(position = "fill") +
+  scale_fill_manual(values = c("#B7D8FF", "#1A5CB5")) +
+  labs(
+    title = "Proportion Homicides by Victim Sex",
+    subtitle = "Domestic vs Non-Domestic",
+    x = "Victim Sex",
+    y = "Proportion of Homicides",
+    fill = "Is Domestic Homicide"
+  ) +
+  theme_minimal(base_size = 10)
+```
+
+## Section 3 - Data
+
+See data dimensions and code book in README.
+
+```{r glimpse}
+glimpse(homicide)
+```
+
+## Section 4 - Methods and Results
+
+Before we do some further data analysis, we will first set the seed so our
+results are reproducible.
+
+```{r seed}
+set.seed(71189752)
+```
+
+Next, we have to make some adjustments to the data-set to clean up our data.
+Since we will be running further tests on age, sex, and race (and obviously
+their relationship to domestic homicide), these are the 4 variables we will
+keep. Additionally, since we will be doing hypothesis testing, we select a 
+small subset of our population (~20% = 200) so that our results can be
+compared with the entire population.
+
+```{r ht-setup}
+homicide_ht <- homicide %>%
+  select(victim_age, victim_sex, victim_race, domestic) %>%
+  na.omit() %>%
+  mutate(
+    victim_age_group = case_when(
+      victim_age < 10 ~ "<10",
+      victim_age >= 10 & victim_age < 20 ~ "10-19",
+      victim_age >= 20 & victim_age < 30 ~ "20-29",
+      victim_age >= 30 & victim_age < 40 ~ "30-39",
+      victim_age >= 40 & victim_age < 50 ~ "40-59",
+      victim_age >= 50 & victim_age < 60 ~ "50-59",
+      victim_age >= 60 ~ ">59"
+    )
+  )
+
+indices <- sample(nrow(homicide_ht), 200)
+
+homicide_ht_sample <- homicide_ht %>%
+  slice(indices)
+```
+
+
+## Proportion of Homicides that are Domestic
+
+Using the simulation based method on a smaller sample of the data, we can 
+generate confidence intervals for the proportion of homicides that are domestic.
+This statistic does a good job summarizing a key aspect of the data set that we
+are working with.
+
+```{r simulation-based-confidence-interval}
+set.seed(71189752)
+
+domestic_dist <- homicide_ht_sample %>%
+  specify(response = domestic, success = "YES") %>%
+  generate(domestic_data, reps = 5000, type = "bootstrap") %>%
+  calculate(stat = "prop") %>%
+  summarize(lower_bound = quantile(stat, 0.025),
+            upper_bound = quantile(stat, 0.975))
+
+domestic_dist
+```
+
+This confidence interval is generated with a simulation-based method, and
+indicates that we are 95% confident that the interval from 0.17 to 0.285
+captures the true population proportion of homicides that are domestic in NYC
+from the years 2016 through 2019.
+
+```{r domestic}
+homicide %>%
+  filter(domestic != "NA") %>%
+  count(domestic) %>%
+  mutate(prop_domestic = n / sum(n)) %>%
+  filter(domestic == "YES") %>%
+  select(domestic, prop_domestic)
+```
+
+As we can see by this sample statistic that looks at the entire data set, both
+statistics are extremely similar for the proportion of domestic homicides. The
+proportion of homicides in NYC that were committed by relatives of the victim or
+otherwise qualify as domestic between the years 2016-2019 was actually 23.45%,
+which lies within the confidence interval. This summary statistic demonstrates
+domestic homicides are not a rare event and that frequently homicide victims in
+NYC know and are very close to their killers. The similarity between our
+confidence interval and the summary statistic demonstrates that this sample
+which will be used in later parts of our analysis is representative of the 
+population. 
+
+
+## The Influence of Victim's Age
+
+As seen in our visualization from part 2, age of victims of domestic homicide
+seems to be skewed very far to the left, suggesting people at very low age are
+disproportionately affected by domestic homicide. The summary table below 
+confirms this, with approximately 92.7% of homicides involving a victim under 
+10 being domestic.
+
+```{r summary-age}
+homicide_ht %>%
+  count(victim_age_group, domestic) %>%
+  group_by(victim_age_group) %>%
+  mutate(prop = n / sum(n),
+         total = sum(n)) %>%
+  filter(domestic == "YES") %>%
+  arrange(desc(prop)) %>%
+  select(victim_age_group, prop, total)
+```
+
+With this in mind, we wanted to examine the influence of victims' age on
+their likelihood of being a homicide victim so we performed an stimulation-based
+hypothesis test on the correlation between age and whether a homicide is
+domestic. For all the hypothesis tests in the project, we adopted the standard
+$\alpha = 0.05$.     
+
+Hypotheses are as follows:
+
+$H_0:$ Victim age and whether a homicide is domestic are independent.
+
+$$p_{<10} = p_{\geq10}$$
+
+$H_1:$ Victim age and whether a homicide is domestic are not independent
+      (in fact, people under the age of 10 are more likely to be the victim for
+      domestic homicide).
+    
+$$p_{<10} > p_{\geq10}$$
+
+```{r ht-age}
+set.seed(71189752)
+
+p_hat_diff_age <- homicide_ht_sample %>%
+  mutate(victim_under_10 = if_else(victim_age_group == "<10", "Y", "N")) %>%
+  count(victim_under_10, domestic) %>%
+  group_by(domestic) %>%
+  mutate(p_hat = n / sum(n)) %>%
+  filter(victim_under_10 == "Y") %>%
+  pull(p_hat) %>%
+  diff()
+
+null_age_dist <- homicide_ht_sample %>%
+  mutate(victim_under_10 = if_else(victim_age_group == "<10", "Y", "N")) %>%
+  specify(response = domestic,
+          explanatory = victim_under_10,
+          success = "YES") %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 2000, type = "permute") %>%
+  calculate(stat = "diff in props", order = c("Y", "N"))
+
+visualize(null_age_dist) +
+  shade_p_value(
+    obs_stat = p_hat_diff_age,
+    direction = "greater",
+    color = "#1A5CB5",
+    fill = "#B7D8FF"
+  )+
+  labs(x = "difference in proportions of victim under 10")
+
+null_age_dist %>%
+  get_p_value(obs_stat = p_hat_diff_age, direction = "greater")
+```
+
+We find the p-value to be 0.029, which is less than the standard alpha of 0.05.
+Therefore, we can reject our null hypothesis that victim age and domestic
+homicide are independent. Extrapolated to the population as a whole, this poses
+the possibility (though does not definitively state) that victim age and
+the likelihood of a homicide being domestic could be linked.
+
+## The Influence of Victim's Race
+
+Furthermore, our visualization from part 2 shows that the race of victims of
+domestic homicide seems to be linked with a homicide being domestic, with
+Asian/Pacific Islanders showing the highest proportion of domestic homicide.
+The summary table below confirms this, with approximately 34% of homicides
+involving an Asian/Pacific Islander victim being domestic.
+
+```{r summary-race}
+homicide_ht %>%
+  count(victim_race, domestic) %>%
+  group_by(victim_race) %>%
+  mutate(prop = n / sum(n),
+         total = sum(n)) %>%
+  filter(domestic == "YES" & victim_race != "UNKNOWN") %>%
+  arrange(desc(prop)) %>%
+  select(victim_race, prop, total)
+```
+
+Seeing the proportions of different races as domestic homicide victims led
+us to perform a hypothesis test with the following hypotheses:
+
+$H_0:$ Victim race and whether a homicide is domestic are independent.
+
+$$p_{victim = asian/pi} = p_{victim \neq asian/pi} $$
+
+$H_1:$ Victim race and whether a homicide is domestic are not independent
+      (in fact, the proportion of domestic homicides among Asian/Pacific
+      Islander victims is greater than among other races).
+    
+$$p_{victim = asian/pi} > p_{victim \neq asian/pi} $$
+
+```{r ht-race}
+set.seed(71189752)
+
+p_hat_diff_race <- homicide_ht_sample %>%
+  mutate(victim_asianpi = if_else(victim_race == "ASIAN / PACIFIC ISLANDER",
+                                  "Y", "N")) %>%
+  count(victim_asianpi, domestic) %>%
+  group_by(domestic) %>%
+  mutate(p_hat = n / sum(n)) %>%
+  filter(victim_asianpi == "Y") %>%
+  pull(p_hat) %>%
+  diff()
+
+null_race_dist <- homicide_ht_sample %>%
+  mutate(victim_asianpi = if_else(victim_race == "ASIAN / PACIFIC ISLANDER",
+                                  "Y", "N")) %>%
+  specify(response = domestic,
+          explanatory = victim_asianpi,
+          success = "YES") %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 2000, type = "permute") %>%
+  calculate(stat = "diff in props", order = c("Y", "N"))
+
+visualize(null_race_dist) +
+  shade_p_value(
+    obs_stat = p_hat_diff_race,
+    direction = "greater",
+    color = "#1A5CB5",
+    fill = "#B7D8FF"
+  ) +
+  labs(x = "difference in proportions of victim as Asian/pacific islander")
+
+null_race_dist %>%
+  get_p_value(obs_stat = p_hat_diff_race, direction = "greater")
+```
+
+We find the p-value to be 0.38, which is far greater than a standard alpha
+of 0.05. So we fail to reject our null hypothesis that victim race and
+domestic homicide are independent because we have insufficient evidence.
+
+## The Influence of Victim's Sex
+
+Additionally the visualization relating to the sex of victims of domestic 
+homicide from section 2 shows that female has a higher possibility of being the
+victim of domestic homicide. The summary table below confirms this, with
+approximately 64.5% of homicides involving a female being domestic compared to
+only 12.3% involving males being domestic.
+
+```{r summary-sex}
+homicide_ht %>%
+  count(victim_sex, domestic) %>%
+  group_by(victim_sex) %>%
+  mutate(prop = n / sum(n),
+         total = sum(n)) %>%
+  filter(domestic == "YES" & victim_sex != "U") %>%
+  arrange(desc(prop)) %>%
+  select(victim_sex, prop, total)
+```
+
+Similar to the previous variables analyzed, this led us to perform a hypothesis
+test with the following hypotheses:
+
+$H_0:$ Victim sex and whether a homicide is domestic are independent.
+
+$$p_{female} = p_{male} $$
+
+$H_1:$ Victim sex and whether a homicide is domestic are not independent
+      (in fact, the proportion of domestic homicides among female victims is
+      greater than among male victims).
+    
+$$p_{female} > p_{male} $$
+
+```{r ht-sex}
+set.seed(71189752)
+
+p_hat_diff_sex <- homicide_ht_sample %>%
+  mutate(victim_female = if_else(victim_sex == "F", "Y", "N")) %>%
+  count(victim_female, domestic) %>%
+  group_by(domestic) %>%
+  mutate(p_hat = n / sum(n)) %>%
+  filter(victim_female == "Y") %>%
+  pull(p_hat) %>%
+  diff()
+
+null_sex_dist <- homicide_ht_sample %>%
+  mutate(victim_female = if_else(victim_sex == "F", "Y", "N")) %>%
+  specify(response = domestic,
+          explanatory = victim_female,
+          success = "YES") %>%
+  hypothesize(null = "independence") %>%
+  generate(reps = 2000, type = "permute") %>%
+  calculate(stat = "diff in props", order = c("Y", "N"))
+
+visualize(null_sex_dist) +
+  shade_p_value(
+    obs_stat = p_hat_diff_sex,
+    direction = "greater",
+    color = "#1A5CB5",
+    fill = "#B7D8FF"
+  ) +
+  labs(x = "difference in proportions of female victim")
+
+null_sex_dist %>%
+  get_p_value(obs_stat = p_hat_diff_sex, direction = "greater")
+```
+
+We find the p-value to be 0, which being less than a standard alpha of 0.05
+means that we can reject our null hypothesis that victim sex and domestic
+homicide are independent. Extrapolated to the population as a whole, this poses
+the possibility (though does not definitively state) that victim sex and
+the likelihood of a homicide being domestic could be linked.
+
+## Logistic Regression
+
+Furthering our visualizations from part 2 on the effects borough, weapon, age,
+and sex have on the likelihood of a homicide being domestic, we will now perform
+logistic regression in an attempt to classify some observations in our data-set.
+
+```{r logit}
+set.seed(71189752)
+
+homicide_lm <- homicide %>%
+  select(
+    month,
+    wday,
+    day,
+    year,
+    weapon,
+    victim_age,
+    victim_sex,
+    victim_race,
+    perp_age,
+    perp_sex,
+    perp_race,
+    domestic,
+    precinct,
+    borough
+  ) %>%
+  na.omit() %>%
+  mutate(
+    month = factor(month),
+    wday = factor(wday),
+    day = factor(day),
+    year = factor(year),
+    weapon = factor(weapon),
+    victim_sex = factor(victim_sex),
+    victim_race = factor(victim_race),
+    perp_sex = factor(perp_sex),
+    perp_race = factor(perp_race),
+    precinct = factor(precinct),
+    borough = factor(borough),
+    domestic = if_else(domestic == "YES", 1, 0)
+  )
+
+indices <- sample(nrow(homicide_lm), 50)
+
+homicide_test <- homicide_lm %>%
+  select(-domestic) %>%
+  slice(indices)
+
+homicide_train <- homicide_lm %>%
+  select(-domestic) %>%
+  slice(-indices)
+
+train_status <- homicide_lm %>%
+  select(domestic) %>%
+  slice(-indices) %>%
+  pull()
+
+true_status <- homicide_lm %>%
+  select(domestic) %>%
+  slice(indices) %>%
+  pull()
+
+homicide_logit <- homicide_lm %>%
+  slice(-indices)
+
+logit_domestic <-
+  glm(
+    domestic ~ weapon + victim_age + victim_sex + borough,
+    data = homicide_logit,
+    family = "binomial"
+  )
+
+logit_domestic2 <-
+  glm(domestic ~ victim_age + victim_sex + borough,
+      data = homicide_logit,
+      family = "binomial")
+
+logit_domestic3 <- glm(domestic ~ victim_age + victim_sex,
+                       data = homicide_logit,
+                       family = "binomial")
+
+logit_domestic4 <-
+  glm(
+    domestic ~ weapon + victim_age + victim_sex + borough +
+      month,
+    data = homicide_logit,
+    family = "binomial"
+  )
+
+logit_domestic %>%
+  tidy()
+
+logit_domestic %>%
+  glance() %>%
+  pull(AIC)
+
+logit_domestic2 %>%
+  tidy()
+
+logit_domestic2 %>%
+  glance() %>%
+  pull(AIC)
+
+logit_domestic3 %>%
+  tidy()
+
+logit_domestic3 %>%
+  glance() %>%
+  pull(AIC)
+
+logit_domestic4 %>%
+  tidy()
+
+logit_domestic4 %>%
+  glance() %>%
+  pull(AIC)
+```
+
+We test 4 logistic regression models, using calculated AIC values to determine
+the best model. We find the first to have the lowest AIC, and thus choose this
+one for classification purposes.
+
+```{r log-class}
+set.seed(71189752)
+
+pred_probs <- augment(logit_domestic, newdata = homicide_test) %>%
+  mutate(pred_prob = exp(.fitted) / (1 + exp(.fitted)))
+pred_results <- pred_probs %>%
+  mutate(type = case_when(pred_prob < 0.5 ~ 0, pred_prob >= 0.5 ~ 1)) %>%
+  pull(type)
+mean(pred_results == true_status)
+```
+
+We find that, given our first model, 78% of our test data was classified
+correctly. This figure suggests we have built a successful logistic regression
+model.
+
+And, just to confirm that race is not a great factor for determining domestic
+homicide, we will incorporate it with our best model.
+
+```{r log-race}
+set.seed(71189752)
+
+logit_race <-
+  glm(
+    domestic ~ weapon + victim_age + victim_sex + borough +
+      victim_race,
+    data = homicide_logit,
+    family = "binomial"
+  )
+
+logit_race %>%
+  glance() %>%
+  pull(AIC)
+```
+
+We find that AIC has increased by adding race, and thus, adding race worsens the
+fit of the model, agreeing with our hypothesis test above.
+
+## Section 5 - Discussion
+
+For our final project, we focused on determining the relationship between
+various factors of homicide and the likelihood of a homicide being domestic. We
+conducted basic hypothesis tests of independence, bootstrapping intervals of
+confidence, and logistic regression to determine which of our data set’s factors
+best predicted or were connected to domestic homicides. We conclude that
+domestic homicides are in fact influenced by many factors, among them and in
+loose proposed order of effect victim sex, victim age, weapon used, and borough.
+The extent to which these factors affect domestic homicide is subject for
+further analysis.
+
+We started our analysis by conducting several preliminary visualizations which
+led us to select victim age, victim sex, victim race, weapon used, and borough
+as our factors to explore. Hypothesis testing for independence conducted on
+victim age and victim sex rejected our null hypotheses, suggesting a possible
+connection between these factors and domestic homicide. For victim sex, our
+analysis showed that females are much more likely to be domestic homicide
+victims than males. Similarly for age our hypothesis test concluded that 
+young children (under the age of ten) are the most susceptible age group
+to be a victim of domestic homicide. Conversely, we failed to reject our null
+hypothesis for race, so we have insufficient evidence to make a conclusion about
+the role of race in domestic homicide victims. Logistic regression also
+supported a connection between domestic homicide and victim age and sex as the
+best model found incorporate these factors with decent (78%) success. Logistic
+regression also suggested a connection between borough and weapon used and
+domestic homicide, suggesting these factors may also be good predictors of
+domestic homicide. Logistic regression incorporating victim race increased its
+AIC, which was in agreement with results from the hypothesis test suggesting
+race to be a lesser factor in determining likelihood of domestic homicide.
+
+In tying these conclusions back to our research question our current analysis
+presents females and children as two groups that are more likely to be victims
+of domestic homicide. Furthermore through the logistic regression we have also
+seen that the borough one lives in, such as Staten Island, may influence the
+likelihood that someone is a domestic homicide victim. However, our analysis
+indicated that we do not have enough evidence to make conclusions about the 
+effect of the victim's race. The logistic regression also demonstrated that
+specific methods or weapons can serve as predictors for domestic homicide
+so the form of the homicide differs compared to that of a stranger. Together
+the analysis shows that the circumstances revolving around domestic homicides
+differ from those of regular homicides, and unfortunately, are not uncommon 
+events in NYC.
+
+Reflecting upon our methods, it would’ve been helpful to compare logistic 
+regression classification results with those from k-NN, however, the fact that 
+our data set was almost entirely comprised of categorical variables made this 
+impossible as k-NN relies on distance. This also prevented us from developing 
+linear models and using the step function to arrive at the best one – our 
+original plan for classification modeling. Additionally, a chi-square test for 
+independence could have tested all levels of a factor rather than just 
+selecting the highest proportion level. However, we had difficulty in 
+interpreting these results and thus stuck with our original analysis. This 
+would have nonetheless made our hypothesis tests more reliable for what we were 
+testing. Finally, it could have helped our analysis to make demographic 
+comparisons to the complete NYC population. It is possible that disparities in 
+domestic homicide proportion are high among certain groups simply because there 
+are fewer observations and thus the data set isn’t representative of this 
+demographic. This is supported by both Asian/Pacific Islander and Victim <10 
+having only around 50 observations each. Further analysis of domestic homicide 
+in NYC could address these concerns to arrive at a more detailed and probable 
+conclusion.
+
+Further analysis on this data set should focus on improving the reliability and 
+level of detail of the conclusion. This would likely include starting out by 
+creating more summary statistics to create more numerical variables which would 
+allow for greater modeling/bootstrapping. Analyzing and investigating more
+variables would also create greater confidence in those selected. Comparisons
+along the way with actual population statistics from NYC would help put results
+and proportions in context with their demographic’s relative representation. 
+And analysis of multiple variables simultaneously such as seeing the difference
+between male and female children under the age of 10 as homicide victims would
+also give a deeper understanding. Additionally doing more analysis on whether
+there are multiple victims in one domestic homicide incident.Finally, chi-square
+testing would allow for better analysis of the relationship between each
+variable’s several factor levels and domestic homicide. These changes would 
+create more robust and generalizable results, leading to a better analysis of 
+our research question: which factors of homicide increase its likelihood of 
+being domestic.
+
+Additionally if we were to start over with this project it might have been 
+useful to also analyze more the relationships between the victim and 
+perpetrator in domestic homicides. Doing more analysis on the perpetrator 
+would give us a bigger picture view on domestic homicides because it is not 
+random but rather there is a close relationship between the perpetrator and
+victim. This would allow deeper analysis on elements such as if fathers are 
+more often the perpetrator. By looking more at this side of the question, 
+our conclusions would contain a broader view of the circumstances relating
+to domestic homicides, not just that of the victim.
+

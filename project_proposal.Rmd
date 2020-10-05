@@ -1,0 +1,175 @@
+---
+title: "Homicides in NYC: When are they domestic?"
+subtitle: ""
+author: "R-Rated - Holly Ansel, Jiayi Liang, Matt Jogodnik, Kehan Zhang"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = NA, 
+                      message = FALSE, warning = FALSE,
+                      fig.height=6, fig.width = 9, fig.align = "center")
+```
+
+```{r packages}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+```
+
+```{r import}
+homicide <- read_csv("data/homicide.csv")
+```
+
+```{r fix-vars}
+homicide <- homicide %>%
+  rename(
+    perp_status = `PERP STATUS DESCRIPTION`,
+    relationship = `VICTIM PERP RELATIONSHIP`,
+    weapon = `WEAPON USE`,
+    case_n = `CASE NUMBER`,
+    record_n = `RECORD NUMBER`,
+    victim_n = `VICTIM NUMBER`,
+    domestic = `DOMESTIC INCIDENT`
+    ) %>%
+  clean_names()%>%
+  mutate(
+    date = mdy(date),
+    month = month(date, label = TRUE),
+    day = day(date),
+    wday = wday(date, label = TRUE)
+  )
+```
+
+## Section 1 - Introduction
+
+For our final project, we (Team R-Rated) will be analyzing public data provided
+by the New York Police Department regarding homicides in the years 2016 through
+2019. Our research question is the following: 
+
+**Which factors make a homicide more likely to be domestic/are associated with
+domestic homicides?**
+
+The homicide data we are using comes from New York City’s .gov website:
+https://www1.nyc.gov/site/nypd/stats/reports-analysis/homicide.page, and is
+collected by a department of the NYPD called CompStat. New York City’s police
+department launched CompStat in 1994, successfully lowering crime rates through
+the use of professional management, statistical analysis, and implementation.
+All CompStat data is recorded by the NYPD in the Uniform Crime Reporting format.
+The data is collected by CompStat because every time a homicide is committed 
+and reported it goes into their records.Each entry in the data set represents 
+one recorded homicide incident in New York City. The variables include the date,
+the precinct, the victim and perpetrator’s age, race, and sex, along with weapon
+used, arrest status, and other various notes. These variables serve to give 
+important information on each of the homicides.
+
+## Section 2 - Data analysis plan
+
+Since our research focuses on attributes of the victim and how they are/are not
+associated with domestic homicides, our main outcome variable will be domestic,
+a logical (Yes/No) variable associated with whether a homicide was committed by
+a family member of the victim. Predictor variables will include details
+surrounding the homicide such as in what precinct it was committed in, the time
+of year, and victim/perp age, sex, and race.
+
+### Statistical Methods
+
+We plan on using the following statistical methods:
+
+* Statistical Hypothesis Testing
+
+> Through the use of statistical hypothesis testing, we can see if the
+proportion of homicides that are domestic in NYC is significantly different
+from other populations, such as NY state or the entire United States. In order
+to perform these tests, we would need domestic proportions for these areas,
+however, this data should not be difficult to obtain. Furthermore, since our
+data comes from multiple years, we could compare and see if one year has a
+statistically significantly higher proportion of domestic homicides than another
+and use this in our narrative on domestic homicides in NYC.
+
+* Data Visualization
+
+> Data visualization can help us break down and compare domestic homicides among
+different factors like race, sex, and age. Additionally, we can use map
+visualizations to show the proportion of homicides that are domestic in each
+precinct to see if location has an effect on a homicide being domestic,
+directly answering our research question.
+
+* (Linear) Regression
+
+> Along with visualizations, regression could prove to be a very helpful tool
+in finding relationships between various predictor variables and homicides
+being domestic (our response variable). This will allow us to determine how
+several variables and the interactions between them contribute to domestic
+homicide vs. non-domestic homicide.
+
+* Classification
+
+> Similar to linear regression, we intend to use the classification regression
+methods such as using knn and logistic regression. These tools will be of use
+in answering our research question based on a hypothetical homicide victim
+we could predict the likelihood that they were a domestic homicide victim.
+
+### Sample Visualizations
+
+Below are sample visualizations that highlight potential ways in which we might
+use the data to answer our research question. Underneath the code sample we 
+explain the findings and how this will aid our answer of the research question.
+
+1. Mean Age
+
+```{r mean-age}
+homicide %>% 
+  summarize(mean_victim_age = mean(victim_age),
+            mean_perp_age = mean(perp_age, na.rm = TRUE)
+            )
+```
+
+The mean age of victims of homicide in NYC between the years 2016-2019 was
+34.70 while the mean age of perpetrators was 32.88. This will be used in
+general analysis of the effect age has on being a victim of domestic homicide as
+well as for general hypothesis testing of age in NYC as it compares to other
+areas.
+
+2. Proportion of Homicides that are Domestic
+
+```{r domestic}
+homicide %>% 
+  filter(domestic != "NA") %>% 
+  count(domestic) %>% 
+  mutate(
+    prop_domestic = n/sum(n)
+  ) %>% 
+  filter(domestic == "YES") %>% 
+  select(domestic, prop_domestic)
+```
+
+The proportion of homicides in NYC that were committed by relatives of the
+victim between the years 2016-2019 was 23.45%. This will be used in our analysis
+of domestic homicides and comparison to other areas - it's clear that a large
+proportion of homicide victims in NYC thus know their killers.
+
+3. Domestic Homicides by Race Visualization
+```{r domestic-by-race}
+homicide %>%
+  filter(domestic != "NA" & victim_race != "NA") %>% 
+  ggplot(mapping = aes(x = victim_race, fill = domestic)) +
+    geom_bar(position = "fill") + 
+    coord_flip() +
+    labs(title = "Proportion Domestic Homicides by Race", x = "Race", 
+         y = "Proportion of Domestic Homicides", fill = "Is Domestic Homicide")
+```
+When looking at the proportion of domestic homicides by race it is evident
+that the proportion is highest among Asian/Pacific Islanders. This visualization
+serves our research question to show how race can potentially contribute as a 
+factor of what makes someone more likely to be a domestic homicide victim. It
+also demonstrates visually that a lot of homicides are domestic.
+
+
+## Section 3 - Data
+
+See data dimensions and codebook in README.
+
+```{r glimpse}
+glimpse(homicide)
+```
